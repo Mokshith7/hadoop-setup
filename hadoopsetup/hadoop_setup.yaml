@@ -1,6 +1,6 @@
 ---
 - name: Hadoop Single Node Setup on RHEL
-  hosts: hadoop
+  hosts: localhost
   become: yes
 
   vars:
