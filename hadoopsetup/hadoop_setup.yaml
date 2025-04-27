@@ -1,5 +1,6 @@
-- name: Hadoop Single Node Setup
-  hosts: localhost
+---
+- name: Hadoop Single Node Setup on RHEL
+  hosts: hadoop
   become: yes
 
   vars:
@@ -40,10 +41,10 @@
         ssh-keyscan -H localhost >> ~/.ssh/known_hosts
         
     - name: Download Hadoop tarball into hadoopsetup/files
-      get_url:
+      get_url: 
         url: https://downloads.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz
         dest: "{{ ansible_env.HOME }}/hadoopsetup/files/hadoop-3.3.6.tar.gz"
-        mode: '0644
+        mode: '0644'
 
     - name: Copy Hadoop tarball
       copy:
