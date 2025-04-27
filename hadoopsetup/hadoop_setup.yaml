@@ -1,0 +1,110 @@
+- name: Hadoop Single Node Setup
+  hosts: localhost
+  become: yes
+
+  vars:
+    hadoop_version: "3.3.6"
+    java_package: "java-11-openjdk-devel"
+    hadoop_user: hadoop
+    hadoop_home: "/home/hadoop/hadoop"
+    java_home: "/usr/lib/jvm/java-11-openjdk"
+
+  pre_tasks:
+    - name: Install required packages
+      yum:
+        name:
+          - "{{ java_package }}"
+          - openssh-server
+          - wget
+        state: present
+
+    - name: Ensure sshd is enabled and running
+      systemd:
+        name: sshd
+        state: started
+        enabled: yes
+
+  tasks:
+    - name: Create hadoop user
+      user:
+        name: "{{ hadoop_user }}"
+        shell: /bin/bash
+        groups: wheel
+
+    - name: Setup passwordless SSH for hadoop user
+      become_user: "{{ hadoop_user }}"
+      shell: |
+        ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+        cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+        chmod 0600 ~/.ssh/authorized_keys
+        ssh-keyscan -H localhost >> ~/.ssh/known_hosts
+
+    - name: Copy Hadoop tarball
+      copy:
+        src: files/hadoop-{{ hadoop_version }}.tar.gz
+        dest: /home/{{ hadoop_user }}/
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+
+    - name: Extract Hadoop
+      become_user: "{{ hadoop_user }}"
+      unarchive:
+        src: /home/{{ hadoop_user }}/hadoop-{{ hadoop_version }}.tar.gz
+        dest: /home/{{ hadoop_user }}/
+        remote_src: yes
+
+    - name: Rename Hadoop directory
+      become_user: "{{ hadoop_user }}"
+      command: mv /home/{{ hadoop_user }}/hadoop-{{ hadoop_version }} {{ hadoop_home }}
+      args:
+        creates: "{{ hadoop_home }}"
+
+    - name: Set Hadoop and Java environment variables
+      blockinfile:
+        path: /home/{{ hadoop_user }}/.bashrc
+        block: |
+          export HADOOP_HOME={{ hadoop_home }}
+          export JAVA_HOME={{ java_home }}
+          export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+    - name: Configure hadoop-env.sh
+      lineinfile:
+        path: "{{ hadoop_home }}/etc/hadoop/hadoop-env.sh"
+        regexp: '^export JAVA_HOME='
+        line: "export JAVA_HOME={{ java_home }}"
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+
+    - name: Deploy Hadoop XML configuration files
+      template:
+        src: "{{ item }}.j2"
+        dest: "{{ hadoop_home }}/etc/hadoop/{{ item }}"
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+      with_items:
+        - core-site.xml
+        - hdfs-site.xml
+        - mapred-site.xml
+        - yarn-site.xml
+
+    - name: Create HDFS directories
+      file:
+        path: "/home/{{ hadoop_user }}/hadoopdata/{{ item }}"
+        state: directory
+        owner: "{{ hadoop_user }}"
+        group: "{{ hadoop_user }}"
+      loop:
+        - namenode
+        - datanode
+
+    - name: Format the NameNode
+      become_user: "{{ hadoop_user }}"
+      command: "{{ hadoop_home }}/bin/hdfs namenode -format"
+      args:
+        creates: "/home/{{ hadoop_user }}/hadoopdata/namenode/current"
+
+    - name: Start HDFS and YARN daemons
+      become_user: "{{ hadoop_user }}"
+      shell: |
+        {{ hadoop_home }}/sbin/start-dfs.sh
+        {{ hadoop_home }}/sbin/start-yarn.sh
